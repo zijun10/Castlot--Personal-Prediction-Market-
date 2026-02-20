@@ -2,7 +2,7 @@ DEMO: https://castlot-personal-prediction-market-virid.vercel.app/
 
 Overview:
 
-Castlot is a social, audio-first life forecasting platform where users talk about their real-life situations (career, academic, habits, relationships, etc.) and the community trades probability on the outcome as they help the user vote, trade, and comment on potential solutions or decisions. It transforms personal dilemmas into structured, time-bound prediction markets, building a reputation economy around forecasting accuracy. This is not Reddit where there's no rhetoric-based upvotes, nor Kalshi or Polymarket that are only global macro prediction markets, nor a podcast app (the audio is only input, not content).
+Castlot is a social, audio-first life forecasting platform where users talk about their real-life situations (career, academic, habits, relationships, etc.) and the community trades probability on the outcome as they help the user vote and comment on potential solutions or decisions. It transforms personal dilemmas into structured, time-bound prediction markets, building a reputation economy around forecasting accuracy. This is not Reddit where there's no rhetoric-based upvotes, nor Kalshi or Polymarket that are only global macro prediction markets, nor a podcast app (the audio is only input, not content).
 
 Life gets confusing, Castlot clears it up. 
 
