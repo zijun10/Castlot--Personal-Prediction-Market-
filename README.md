@@ -8,6 +8,9 @@ Life gets confusing, Castlot clears it up.
 
 Core Product Loop: User narrates a real-life dilemma (30–120 sec voice memo), AI converts it into a structured binary prediction market, app generates an anonymous podcast-style experience, community trades probability (YES/NO shares), market resolves → reputations update. This is accountability infrastructure for real life. 
 
+Tech Stack:
+React + Vite (Frontend), JavaScript, Node.js + npm, Vercel (deployment)
+
 Market Engine:
 Castlot uses a Logarithmic Market Scoring Rule (LMSR) model with a sentiment anchoring phase.
 Lifecycle: Creation → 10-min anchor window → Trading → Soft close → Resolution → Brier score update 
@@ -42,12 +45,7 @@ Success Metrics (90 Days):
 15+ traders per market 
 
 
-Castlot is not “just a prediction market.
-It is a behavioral accountability layer for Gen Z life decisions — turning anonymous advice into calibrated, reputation-backed probabilistic reasoning. The engagement mechanic is prediction markets. The long-term asset is forecasting reputation data. At scale, this becomes a decision intelligence layer, a talent signal, a behavioral underwriting primitive, a new social graph built on calibration and probabilities.
+Castlot is both a prediction market and a behavioral accountability layer for Gen Z life decisions, turning anonymous advice into calibrated, reputation-backed probabilistic reasoning. Predication market data is often much more accurate because you put your money where your mouth is and is more telling of what will be the outcome in a given situation. The engagement mechanic is prediction markets. The long-term asset is forecasting reputation data. At scale, this becomes a decision intelligence layer, a talent signal, a behavioral underwriting primitive, a new social graph built on calibration and probabilities.
 
 Put your crowd to work.
 Life gets confusing, Castlot clears it up.
-
-
-
-
