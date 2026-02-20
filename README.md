@@ -1,3 +1,4 @@
+DEMO: https://castlot-personal-prediction-market-virid.vercel.app/
 Overview:
 
 Castlot is a social, audio-first life forecasting platform where users talk about their real-life situations (career, academic, habits, relationships, etc.) and the community trades probability on the outcome as they help the user vote, trade, and comment on potential solutions or decisions.
