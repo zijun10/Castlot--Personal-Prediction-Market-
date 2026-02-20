@@ -962,6 +962,158 @@ function CreateMarketModal({ onClose, onCreate, userFP }) {
   const [category, setCategory] = useState("career");
   const [resolutionDate, setResolutionDate] = useState("");
   const [error, setError] = useState("");
+  const recognitionRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recordingRef = useRef(false);
+
+  const stopRecording = useCallback(() => {
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {
+        // Already stopped
+      }
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    recordingRef.current = false;
+    setRecording(false);
+  }, []);
+
+  // Sync recordingRef with recording state
+  useEffect(() => {
+    recordingRef.current = recording;
+  }, [recording]);
+
+  // Initialize speech recognition
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US';
+
+        recognition.onresult = (event) => {
+          let interimTranscript = '';
+          let finalTranscript = '';
+
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const transcript = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+              finalTranscript += transcript + ' ';
+            } else {
+              interimTranscript += transcript;
+            }
+          }
+
+          // Only add final transcripts to the main transcript, show interim separately
+          if (finalTranscript) {
+            setTranscript(prev => prev + finalTranscript);
+          }
+          // Interim results are shown in real-time but not saved until final
+        };
+
+        recognition.onerror = (event) => {
+          console.error('Speech recognition error:', event.error);
+          if (event.error === 'no-speech') {
+            // Don't show error for no-speech, just continue
+            return;
+          } else if (event.error === 'not-allowed') {
+            setError('Microphone permission denied. Please enable microphone access.');
+            stopRecording();
+          } else if (event.error !== 'aborted') {
+            setError('Speech recognition error. Please try typing instead.');
+            stopRecording();
+          }
+        };
+
+        recognition.onend = () => {
+          if (recordingRef.current) {
+            // Restart recognition if still recording
+            try {
+              recognition.start();
+            } catch (e) {
+              // Already started or error
+            }
+          }
+        };
+
+        recognitionRef.current = recognition;
+      }
+    }
+
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {
+          // Already stopped
+        }
+      }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+    };
+  }, [stopRecording]);
+
+  const startRecording = async () => {
+    setError('');
+    
+    // Check for Speech Recognition API
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    
+    if (SpeechRecognition && recognitionRef.current) {
+      try {
+        // Clear transcript if starting fresh (optional - comment out if you want to append)
+        // setTranscript('');
+        recognitionRef.current.start();
+        recordingRef.current = true;
+        setRecording(true);
+      } catch (e) {
+        setError('Could not start recording. Please check microphone permissions.');
+      }
+    } else {
+      // Fallback: Use MediaRecorder and show message
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mediaRecorder = new MediaRecorder(stream);
+        audioChunksRef.current = [];
+
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            audioChunksRef.current.push(event.data);
+          }
+        };
+
+        mediaRecorder.onstop = () => {
+          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+          stream.getTracks().forEach(track => track.stop());
+          // Note: Without speech recognition, we can't convert to text automatically
+          setError('Speech recognition not available in this browser. Please type your text instead.');
+        };
+
+        mediaRecorder.start();
+        mediaRecorderRef.current = mediaRecorder;
+        recordingRef.current = true;
+        setRecording(true);
+        setError('Recording audio (speech-to-text not available - please type your text)');
+      } catch (err) {
+        setError('Microphone access denied. Please enable microphone permissions and try again.');
+      }
+    }
+  };
+
+  const toggleRecording = () => {
+    if (recording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  };
 
   const processWithAI = async () => {
     if (!transcript.trim()) { setError("Please describe your situation first."); return; }
@@ -1080,7 +1232,7 @@ Respond ONLY with valid JSON (no markdown, no backticks):
 
             <div style={{ textAlign: "center", margin: "16px 0" }}>
               <div style={{ color: C.textSoft, fontSize: 12, marginBottom: 8 }}>— or —</div>
-              <button onClick={() => setRecording(!recording)} style={{
+              <button onClick={toggleRecording} style={{
                 width: 64, height: 64, borderRadius: "50%", border: "none",
                 background: recording ? C.no : C.babyBlue,
                 cursor: "pointer", fontSize: 24,
@@ -1090,6 +1242,11 @@ Respond ONLY with valid JSON (no markdown, no backticks):
               <div style={{ fontSize: 12, color: C.textSoft, marginTop: 8 }}>
                 {recording ? "Recording... (tap to stop)" : "Tap to voice record"}
               </div>
+              {recording && transcript && (
+                <div style={{ fontSize: 11, color: C.plum, marginTop: 4, fontStyle: "italic" }}>
+                  Live transcription active...
+                </div>
+              )}
             </div>
 
             {error && <div style={{ color: C.no, fontSize: 13, marginBottom: 12 }}>{error}</div>}
