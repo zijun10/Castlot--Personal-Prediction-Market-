@@ -12,27 +12,19 @@ export default function AIInsightPanel({ market }) {
     if (shown) return;
     setLoading(true); setShown(true);
     try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      const response = await fetch("/api/insight", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          messages: [{
-            role: "user",
-            content: `You are a prediction market analyst for Castlot, a college student forecasting app.
-
-Market: "${market.title}"
-Current crowd probability: ${Math.round(lmsrPrice(market.qYes, market.qNo, "yes") * 100)}% YES
-Category: ${market.category}
-Days until resolution: ${Math.ceil((new Date(market.resolution) - new Date()) / 86400000)}
-
-In 2-3 sentences, give a sharp, specific analysis of what's likely driving this probability and what information would most change it. Be direct and analytical, not generic. Speak like a sharp trader, not a therapist.`
-          }]
+          title: market.title,
+          yesPct: lmsrPrice(market.qYes, market.qNo, "yes") * 100,
+          category: market.category,
+          daysLeft: Math.ceil((new Date(market.resolution) - new Date()) / 86400000),
         })
       });
       const data = await response.json();
-      setInsight(data.content[0].text);
+      if (!response.ok) throw new Error(data.error);
+      setInsight(data.insight);
     } catch {
       setInsight("Market analysis unavailable. Use base rates and available evidence to calibrate your position.");
     } finally {

@@ -1,219 +1,121 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { C } from "../theme.js";
 import { CATEGORIES } from "../mockData.js";
 
 // ─── Create Market Modal ──────────────────────────────────────────────────────
+// Voice → server-side Whisper transcription → Claude extraction with a strict
+// schema. Underspecified dilemmas are rejected with actionable reasons instead
+// of becoming unresolvable markets.
+
+async function blobToBase64(blob) {
+  const buf = await blob.arrayBuffer();
+  let binary = "";
+  const bytes = new Uint8Array(buf);
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
 export default function CreateMarketModal({ onClose, onCreate, userFP }) {
   const [step, setStep] = useState(1);
   const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [processing, setProcessing] = useState(false);
   const [aiResult, setAiResult] = useState(null);
   const [category, setCategory] = useState("career");
   const [resolutionDate, setResolutionDate] = useState("");
   const [error, setError] = useState("");
-  const recognitionRef = useRef(null);
+  const [rejectionReasons, setRejectionReasons] = useState([]);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
-  const recordingRef = useRef(false);
 
-  const stopRecording = useCallback(() => {
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch (e) {
-        // Already stopped
-      }
-    }
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+  useEffect(() => () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
     }
-    recordingRef.current = false;
-    setRecording(false);
   }, []);
 
-  // Sync recordingRef with recording state
-  useEffect(() => {
-    recordingRef.current = recording;
-  }, [recording]);
-
-  // Initialize speech recognition
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        const recognition = new SpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = 'en-US';
-
-        recognition.onresult = (event) => {
-          let interimTranscript = '';
-          let finalTranscript = '';
-
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            const transcript = event.results[i][0].transcript;
-            if (event.results[i].isFinal) {
-              finalTranscript += transcript + ' ';
-            } else {
-              interimTranscript += transcript;
-            }
-          }
-
-          // Only add final transcripts to the main transcript, show interim separately
-          if (finalTranscript) {
-            setTranscript(prev => prev + finalTranscript);
-          }
-          // Interim results are shown in real-time but not saved until final
-        };
-
-        recognition.onerror = (event) => {
-          console.error('Speech recognition error:', event.error);
-          if (event.error === 'no-speech') {
-            // Don't show error for no-speech, just continue
-            return;
-          } else if (event.error === 'not-allowed') {
-            setError('Microphone permission denied. Please enable microphone access.');
-            stopRecording();
-          } else if (event.error !== 'aborted') {
-            setError('Speech recognition error. Please try typing instead.');
-            stopRecording();
-          }
-        };
-
-        recognition.onend = () => {
-          if (recordingRef.current) {
-            // Restart recognition if still recording
-            try {
-              recognition.start();
-            } catch (e) {
-              // Already started or error
-            }
-          }
-        };
-
-        recognitionRef.current = recognition;
-      }
-    }
-
-    return () => {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-        } catch (e) {
-          // Already stopped
-        }
-      }
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop();
-      }
-    };
-  }, [stopRecording]);
-
   const startRecording = async () => {
-    setError('');
-    
-    // Check for Speech Recognition API
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    
-    if (SpeechRecognition && recognitionRef.current) {
-      try {
-        // Clear transcript if starting fresh (optional - comment out if you want to append)
-        // setTranscript('');
-        recognitionRef.current.start();
-        recordingRef.current = true;
-        setRecording(true);
-      } catch (e) {
-        setError('Could not start recording. Please check microphone permissions.');
-      }
-    } else {
-      // Fallback: Use MediaRecorder and show message
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mediaRecorder = new MediaRecorder(stream);
-        audioChunksRef.current = [];
+    setError("");
+    setRejectionReasons([]);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm")
+        ? "audio/webm"
+        : MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "";
+      const mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      audioChunksRef.current = [];
 
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) {
-            audioChunksRef.current.push(event.data);
-          }
-        };
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
 
-        mediaRecorder.onstop = () => {
-          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-          stream.getTracks().forEach(track => track.stop());
-          // Note: Without speech recognition, we can't convert to text automatically
-          setError('Speech recognition not available in this browser. Please type your text instead.');
-        };
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(track => track.stop());
+        const blob = new Blob(audioChunksRef.current, { type: mimeType || "audio/webm" });
+        if (blob.size < 1000) return; // nothing recorded
+        setTranscribing(true);
+        try {
+          const r = await fetch("/api/transcribe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ audio: await blobToBase64(blob), mimeType: blob.type }),
+          });
+          const data = await r.json();
+          if (!r.ok) throw new Error(data.error || "Transcription failed.");
+          setTranscript(prev => (prev ? prev + " " : "") + data.text);
+        } catch (e) {
+          setError(e.message || "Transcription failed. Please type your dilemma instead.");
+        } finally {
+          setTranscribing(false);
+        }
+      };
 
-        mediaRecorder.start();
-        mediaRecorderRef.current = mediaRecorder;
-        recordingRef.current = true;
-        setRecording(true);
-        setError('Recording audio (speech-to-text not available - please type your text)');
-      } catch (err) {
-        setError('Microphone access denied. Please enable microphone permissions and try again.');
-      }
+      mediaRecorder.start();
+      mediaRecorderRef.current = mediaRecorder;
+      setRecording(true);
+    } catch (err) {
+      setError("Microphone access denied. Please enable microphone permissions or type instead.");
     }
   };
 
-  const toggleRecording = () => {
-    if (recording) {
-      stopRecording();
-    } else {
-      startRecording();
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
     }
+    setRecording(false);
   };
+
+  const toggleRecording = () => (recording ? stopRecording() : startRecording());
 
   const processWithAI = async () => {
     if (!transcript.trim()) { setError("Please describe your situation first."); return; }
-    setProcessing(true); setError("");
+    setProcessing(true); setError(""); setRejectionReasons([]);
     try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      const r = await fetch("/api/generate-market", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          messages: [{
-            role: "user",
-            content: `You are an AI for Castlot, a social prediction market app for college students. 
-            
-A user has narrated their personal life dilemma. Transform it into:
-1. A clean binary YES/NO prediction market question (about the user's own life, time-bound, verifiable)
-2. A short anonymous podcast summary (2-3 sentences, third person, no identifying details)
-3. 5-6 transcript segments with timestamps for Spotify-style display
-4. 3 relevant tags
-
-User's narration: "${transcript}"
-
-Respond ONLY with valid JSON (no markdown, no backticks):
-{
-  "marketQuestion": "Will I [...]?",
-  "podcastSummary": "...",
-  "transcript": [{"time": "0:00", "text": "..."}, ...],
-  "tags": ["tag1", "tag2", "tag3"],
-  "suggestedCategory": "career|relationships|habits|academics|purchases"
-}`
-          }]
-        })
+        body: JSON.stringify({ transcript }),
       });
-      const data = await response.json();
-      const text = data.content[0].text.trim();
-      const parsed = JSON.parse(text);
-      setAiResult(parsed);
-      setCategory(parsed.suggestedCategory || "career");
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || "AI processing failed.");
+
+      if (!data.accepted) {
+        setRejectionReasons(data.rejection_reasons || ["This isn't specific enough to become a market yet."]);
+        return;
+      }
+
+      setAiResult(data.market);
+      setCategory(data.market.suggestedCategory || "career");
+      if (data.market.suggestedResolutionDate) {
+        setResolutionDate(data.market.suggestedResolutionDate);
+      }
       setStep(3);
     } catch (e) {
-      setError("AI processing failed. Please try again or fill in manually.");
-      setAiResult({
-        marketQuestion: "Will I achieve my goal?",
-        podcastSummary: transcript.slice(0, 200) + "...",
-        transcript: [{ time: "0:00", text: transcript.slice(0, 80) }],
-        tags: [category],
-        suggestedCategory: category
-      });
-      setStep(3);
+      setError(e.message || "AI processing failed. Please try again.");
     } finally {
       setProcessing(false);
     }
@@ -246,7 +148,6 @@ Respond ONLY with valid JSON (no markdown, no backticks):
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: C.plum, fontFamily: "'DM Serif Display', serif" }}>
             {step === 1 && "Narrate Your Dilemma"}
-            {step === 2 && "Processing..."}
             {step === 3 && "Review Your Market"}
           </h2>
           <button onClick={onClose} style={{ background: "none", border: "none", color: C.textSoft, cursor: "pointer", fontSize: 20 }}>✕</button>
@@ -257,21 +158,21 @@ Respond ONLY with valid JSON (no markdown, no backticks):
           {[1, 2, 3].map(s => (
             <div key={s} style={{
               flex: 1, height: 3, borderRadius: 2,
-              background: s <= step ? C.plum : "rgba(61,0,48,0.1)",
+              background: s <= (processing ? 2 : step) ? C.plum : "rgba(61,0,48,0.1)",
               transition: "background 0.3s"
             }} />
           ))}
         </div>
 
-        {step === 1 && (
+        {step === 1 && !processing && (
           <div>
             <p style={{ color: C.textSoft, fontSize: 14, marginBottom: 20, lineHeight: 1.7 }}>
-              Describe your situation in your own words. Talk about a real decision you're facing — our AI will turn it into an anonymous prediction market.
+              Describe your situation in your own words. Talk about a real decision you're facing — our AI will turn it into an anonymous prediction market. Include <b>what would count as YES</b> and <b>when it'll be decided by</b>.
             </p>
             <textarea
               value={transcript}
               onChange={e => setTranscript(e.target.value)}
-              placeholder="So I'm trying to decide whether to... The situation is... I'm thinking about..."
+              placeholder="So I'm trying to decide whether to... I'll know by..."
               style={{
                 width: "100%", minHeight: 160, background: "rgba(61,0,48,0.03)",
                 border: `1px solid rgba(61,0,48,0.12)`, borderRadius: 14, padding: 16,
@@ -282,25 +183,36 @@ Respond ONLY with valid JSON (no markdown, no backticks):
 
             <div style={{ textAlign: "center", margin: "16px 0" }}>
               <div style={{ color: C.textSoft, fontSize: 12, marginBottom: 8 }}>— or —</div>
-              <button onClick={toggleRecording} style={{
+              <button onClick={toggleRecording} disabled={transcribing} style={{
                 width: 64, height: 64, borderRadius: "50%", border: "none",
                 background: recording ? C.no : C.babyBlue,
-                cursor: "pointer", fontSize: 24,
+                cursor: transcribing ? "wait" : "pointer", fontSize: 24,
                 boxShadow: recording ? "0 0 24px rgba(192,57,43,0.35)" : "0 4px 16px rgba(194,220,255,0.7)",
                 transition: "all 0.3s", animation: recording ? "pulse 1.5s infinite" : "none"
               }}>🎙️</button>
               <div style={{ fontSize: 12, color: C.textSoft, marginTop: 8 }}>
-                {recording ? "Recording... (tap to stop)" : "Tap to voice record"}
+                {recording ? "Recording... (tap to stop)"
+                  : transcribing ? "Transcribing your narration..."
+                  : "Tap to voice record"}
               </div>
-              {recording && transcript && (
-                <div style={{ fontSize: 11, color: C.plum, marginTop: 4, fontStyle: "italic" }}>
-                  Live transcription active...
-                </div>
-              )}
             </div>
 
+            {rejectionReasons.length > 0 && (
+              <div style={{
+                background: "rgba(192,57,43,0.06)", border: "1px solid rgba(192,57,43,0.25)",
+                borderRadius: 12, padding: "14px 16px", marginBottom: 14
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.no, marginBottom: 6 }}>
+                  Not quite a market yet — add some detail:
+                </div>
+                {rejectionReasons.map((reason, i) => (
+                  <div key={i} style={{ fontSize: 13, color: C.textMid, lineHeight: 1.6 }}>• {reason}</div>
+                ))}
+              </div>
+            )}
             {error && <div style={{ color: C.no, fontSize: 13, marginBottom: 12 }}>{error}</div>}
-            <button onClick={processWithAI} style={{
+
+            <button onClick={processWithAI} disabled={transcribing} style={{
               width: "100%", padding: "14px 0", background: C.plum, border: "none",
               borderRadius: 14, color: C.white, fontWeight: 800, fontSize: 15,
               cursor: "pointer", fontFamily: "'DM Sans', sans-serif",
@@ -313,11 +225,11 @@ Respond ONLY with valid JSON (no markdown, no backticks):
           <div style={{ textAlign: "center", padding: "40px 0" }}>
             <div style={{ fontSize: 48, marginBottom: 16, animation: "spin 2s linear infinite", display: "inline-block" }}>⚙️</div>
             <div style={{ color: C.textMid, fontSize: 15 }}>AI is structuring your market...</div>
-            <div style={{ color: C.textSoft, fontSize: 13, marginTop: 8 }}>Extracting binary question, generating transcript, assigning category</div>
+            <div style={{ color: C.textSoft, fontSize: 13, marginTop: 8 }}>Checking it has real resolution criteria and a timeframe</div>
           </div>
         )}
 
-        {step === 3 && aiResult && (
+        {step === 3 && aiResult && !processing && (
           <div>
             <div style={{ background: "rgba(61,0,48,0.05)", borderRadius: 14, padding: 20, marginBottom: 20, border: `1px solid rgba(61,0,48,0.12)` }}>
               <div style={{ fontSize: 12, color: C.plum, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>Market Question</div>
