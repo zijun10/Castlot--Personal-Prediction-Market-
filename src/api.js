@@ -10,15 +10,72 @@ const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const supabase = url && anonKey ? createClient(url, anonKey) : null;
 
-// Anonymous auth: every visitor gets a real auth.users row (and the 1000 FP
-// signup grant) without an account. Requires "anonymous sign-ins" enabled in
-// the Supabase dashboard.
-export async function ensureSession() {
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+
+export async function getSession() {
   const { data: { session } } = await supabase.auth.getSession();
-  if (session) return session;
+  return session;
+}
+
+// Guest mode: a real auth.users row (and the 1000 FP signup grant) without an
+// account. Requires "anonymous sign-ins" enabled in the Supabase dashboard.
+export async function signInAsGuest() {
   const { data, error } = await supabase.auth.signInAnonymously();
   if (error) throw error;
   return data.session;
+}
+
+export async function signUp(email, password, username) {
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { data: { username } },
+  });
+  if (error) throw error;
+  return data.session;
+}
+
+export async function signIn(email, password) {
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+  return data.session;
+}
+
+export async function signOut() {
+  await supabase.auth.signOut();
+}
+
+export async function fetchProfile() {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+  const { data, error } = await supabase.from("profiles").select("*").eq("id", user.id).single();
+  if (error) throw error;
+  return data;
+}
+
+export async function fetchLeaderboard() {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, username, brier, markets_scored")
+    .gt("markets_scored", 0)
+    .order("brier", { ascending: true })
+    .limit(10);
+  if (error) throw error;
+  return data.map(p => ({
+    id: p.id,
+    name: p.username,
+    brier: p.brier.toFixed(3),
+    markets: p.markets_scored,
+  }));
+}
+
+export async function resolveMarket(marketId, outcome) {
+  const { data, error } = await supabase.rpc("resolve_market", {
+    p_market_id: marketId,
+    p_outcome: outcome,
+  });
+  if (error) throw error;
+  return data;
 }
 
 // ─── Reads ────────────────────────────────────────────────────────────────────
@@ -37,6 +94,7 @@ function rowToMarket(row) {
     resolution: row.resolution_date,
     status: row.status,
     resolved: row.outcome,
+    voided: row.voided,
     audioSummary: row.audio_summary ?? mock?.audioSummary ?? "",
     transcript: Array.isArray(row.transcript) && row.transcript.length ? row.transcript : mock?.transcript ?? [],
     tags: Array.isArray(row.tags) && row.tags.length ? row.tags : mock?.tags ?? [],

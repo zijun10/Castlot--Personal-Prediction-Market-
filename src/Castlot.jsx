@@ -1,6 +1,11 @@
 import { useState, useEffect } from "react";
 import { C } from "./theme.js";
-import { supabase, ensureSession, fetchMarkets, fetchBalance, fetchUserVotes, executeTrade, createMarket } from "./api.js";
+import {
+  supabase, getSession, signInAsGuest, signUp, signIn, signOut,
+  fetchMarkets, fetchBalance, fetchUserVotes, fetchProfile, fetchLeaderboard,
+  executeTrade, createMarket, resolveMarket,
+} from "./api.js";
+import Landing from "./components/Landing.jsx";
 import { INITIAL_MARKETS, CATEGORIES } from "./mockData.js";
 import { brierLabel } from "./brier.js";
 import MarketCard from "./components/MarketCard.jsx";
@@ -19,23 +24,55 @@ export default function Castlot() {
   const [aiInsightMarket, setAiInsightMarket] = useState(null);
   // true once server data is loaded — trades then settle through Postgres
   const [live, setLive] = useState(false);
+  const [session, setSession] = useState(null);
+  const [authChecked, setAuthChecked] = useState(!supabase);
+  const [profile, setProfile] = useState(null);
+  const [leaders, setLeaders] = useState(null); // null → fall back to mock
+
+  const loadData = async (s) => {
+    const [serverMarkets, balance, votes, prof, board] = await Promise.all([
+      fetchMarkets(), fetchBalance(), fetchUserVotes(), fetchProfile(), fetchLeaderboard(),
+    ]);
+    setMarkets(serverMarkets.map(m => ({ ...m, userVote: votes[m.id] ?? null })));
+    setUserFP(Math.round(balance));
+    setProfile(prof);
+    if (board.length) setLeaders(board);
+    setSession(s);
+    setLive(true);
+  };
 
   useEffect(() => {
     if (!supabase) return;
     (async () => {
       try {
-        await ensureSession();
-        const [serverMarkets, balance, votes] = await Promise.all([
-          fetchMarkets(), fetchBalance(), fetchUserVotes(),
-        ]);
-        setMarkets(serverMarkets.map(m => ({ ...m, userVote: votes[m.id] ?? null })));
-        setUserFP(Math.round(balance));
-        setLive(true);
+        const s = await getSession();
+        if (s) await loadData(s);
       } catch (e) {
         console.error("Supabase init failed — running in local demo mode:", e);
+      } finally {
+        setAuthChecked(true);
       }
     })();
   }, []);
+
+  const handleSignUp = async (email, password, username) => {
+    await loadData(await signUp(email, password, username));
+  };
+  const handleSignIn = async (email, password) => {
+    await loadData(await signIn(email, password));
+  };
+  const handleGuest = async () => {
+    try {
+      await loadData(await signInAsGuest());
+    } catch (e) {
+      console.error("Guest sign-in failed:", e);
+      setSession({ guest: true }); // local demo mode
+    }
+  };
+  const handleSignOut = async () => {
+    if (supabase) await signOut();
+    window.location.reload();
+  };
 
   const currentUser = { id: "me", name: "you_anon", brier: "0.142", markets: 3 };
 
@@ -110,9 +147,30 @@ export default function Castlot() {
     notify("Market published! 🚀 Crowd is watching.", C.yes);
   };
 
+  const handleResolve = async (marketId, outcome) => {
+    try {
+      const r = await resolveMarket(marketId, outcome);
+      setMarkets(prev => prev.map(m => m.id === marketId
+        ? { ...m, status: "resolved", resolved: outcome }
+        : m));
+      const balance = await fetchBalance();
+      setUserFP(Math.round(balance));
+      notify(`Market resolved ${outcome ? "YES" : "NO"} · ${r.paid_out.toFixed(0)} FP paid out`, outcome ? C.yes : C.no);
+    } catch (e) {
+      notify(e.message || "Resolution failed", "#EF4444");
+    }
+  };
+
   const filteredMarkets = activeCategory === "all"
     ? markets
     : markets.filter(m => m.category === activeCategory);
+
+  if (!authChecked) {
+    return <div style={{ minHeight: "100vh", background: C.bg }} />;
+  }
+  if (supabase && !session) {
+    return <Landing onSignUp={handleSignUp} onSignIn={handleSignIn} onGuest={handleGuest} />;
+  }
 
   return (
     <div style={{
@@ -186,11 +244,21 @@ export default function Castlot() {
                 background: C.babyBlue, border: `1px solid rgba(122,175,238,0.5)`,
                 borderRadius: 20, padding: "6px 14px", fontSize: 13, fontWeight: 700, color: C.plum
               }}>⚡ {userFP} FP</div>
+              {profile && (
+                <span style={{ fontSize: 13, fontWeight: 600, color: C.textMid }}>
+                  {profile.username}
+                </span>
+              )}
               <button onClick={() => setShowCreate(true)} style={{
                 background: C.plum, border: "none", borderRadius: 12, padding: "10px 18px",
                 color: C.white, fontWeight: 800, fontSize: 13, cursor: "pointer",
                 fontFamily: "'DM Sans', sans-serif", boxShadow: "0 4px 16px rgba(61,0,48,0.3)"
               }}>+ Create Market</button>
+              <button onClick={handleSignOut} title="Sign out" style={{
+                background: "none", border: `1px solid rgba(61,0,48,0.15)`, borderRadius: 10,
+                padding: "8px 12px", color: C.textSoft, fontWeight: 600, fontSize: 12,
+                cursor: "pointer", fontFamily: "'DM Sans', sans-serif"
+              }}>Sign out</button>
             </div>
           </div>
         </div>
@@ -231,8 +299,10 @@ export default function Castlot() {
                     market={m}
                     onTrade={handleTrade}
                     onComment={handleComment}
+                    onResolve={live ? handleResolve : undefined}
                     userFP={userFP}
                     currentUser={currentUser}
+                    currentUserId={session?.user?.id}
                   />
                 </div>
               ))}
@@ -240,7 +310,7 @@ export default function Castlot() {
 
             {/* Right: Sidebar */}
             <div style={{ position: "sticky", top: 84 }}>
-              <LeaderboardPanel users={mockUsers} />
+              <LeaderboardPanel users={leaders ?? mockUsers} />
 
               {/* Campus Pulse */}
               <div style={{
@@ -287,9 +357,9 @@ export default function Castlot() {
               Ranked by Brier score — the lower, the more calibrated your forecasts.
             </p>
 
-            {mockUsers.map((u, i) => {
+            {(leaders ?? mockUsers).map((u, i) => {
               const tier = brierLabel(u.brier);
-              const isMe = u.id === "me";
+              const isMe = u.id === "me" || u.id === session?.user?.id;
               return (
                 <div key={u.id} style={{
                   background: isMe ? C.babyBlue : C.white,
@@ -363,13 +433,17 @@ export default function Castlot() {
                   fontSize: 28, boxShadow: "0 4px 16px rgba(61,0,48,0.15)"
                 }}>👤</div>
                 <div>
-                  <div style={{ fontSize: 24, fontWeight: 800, fontFamily: "'DM Serif Display', serif", color: C.plum }}>you_anon</div>
-                  <div style={{ color: C.textMid, fontSize: 14 }}>CMU · Class of 2026</div>
+                  <div style={{ fontSize: 24, fontWeight: 800, fontFamily: "'DM Serif Display', serif", color: C.plum }}>
+                    {profile?.username ?? "you_anon"}
+                  </div>
+                  <div style={{ color: C.textMid, fontSize: 14 }}>
+                    {profile?.is_anonymous ? "Guest forecaster · CMU" : "CMU forecaster"}
+                  </div>
                   <div style={{ marginTop: 8 }}>
                     <span style={{
                       background: C.plum, borderRadius: 20,
                       padding: "4px 12px", fontSize: 12, color: C.white, fontWeight: 700
-                    }}>Analyst Tier</span>
+                    }}>{brierLabel(profile?.brier != null ? profile.brier.toFixed(3) : null).label} Tier</span>
                   </div>
                 </div>
               </div>
@@ -378,9 +452,9 @@ export default function Castlot() {
             {/* Stats grid */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 24 }}>
               {[
-                { label: "Brier Score", value: "0.142", note: "Lower = better", color: C.plum },
-                { label: "Markets Traded", value: "3", note: "Min 20 to rank", color: C.babyBlueDark },
-                { label: "FP Balance", value: userFP, note: "Resets weekly", color: C.yes },
+                { label: "Brier Score", value: profile?.brier != null ? profile.brier.toFixed(3) : "—", note: "Lower = better", color: C.plum },
+                { label: "Markets Scored", value: profile?.markets_scored ?? 0, note: "Resolved markets", color: C.babyBlueDark },
+                { label: "FP Balance", value: userFP, note: "Trade + resolve to earn", color: C.yes },
               ].map(s => (
                 <div key={s.label} style={{
                   background: C.white, borderRadius: 16, padding: 20,

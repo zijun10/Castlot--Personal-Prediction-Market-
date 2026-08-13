@@ -6,7 +6,7 @@ import AudioWaveform from "./AudioWaveform.jsx";
 import ProbabilityGauge from "./ProbabilityGauge.jsx";
 
 // ─── Market Card (Story format) ───────────────────────────────────────────────
-export default function MarketCard({ market, onTrade, onComment, userFP, currentUser }) {
+export default function MarketCard({ market, onTrade, onComment, onResolve, userFP, currentUser, currentUserId }) {
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [transcriptIdx, setTranscriptIdx] = useState(0);
@@ -126,38 +126,95 @@ export default function MarketCard({ market, onTrade, onComment, userFP, current
 
       {/* BOTTOM: Voting + Comments */}
       <div style={{ padding: "20px 28px 24px", background: C.white }}>
-        {/* YES/NO Trade Buttons */}
+        {/* YES/NO Trade Buttons — gated by market lifecycle state */}
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, color: C.textSoft, marginBottom: 10, letterSpacing: 1, textTransform: "uppercase" }}>
-            Your forecast — 10 shares at the market price
-          </div>
-          <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={() => onTrade(market.id, "yes")}
-              disabled={market.userVote !== null || userFP < 10}
-              style={{
-                flex: 1, padding: "14px 0", borderRadius: 14, border: "2px solid",
-                borderColor: market.userVote === "yes" ? C.yes : "rgba(26,122,74,0.3)",
-                background: market.userVote === "yes" ? "rgba(26,122,74,0.1)" : "rgba(26,122,74,0.04)",
-                color: C.yes, fontWeight: 800, fontSize: 15, cursor: market.userVote ? "default" : "pointer",
-                transition: "all 0.2s", fontFamily: "'DM Sans', sans-serif"
-              }}>
-              ✓ YES &nbsp;<span style={{ fontWeight: 400, opacity: 0.6 }}>{yesPct}%</span>
-            </button>
-            <button onClick={() => onTrade(market.id, "no")}
-              disabled={market.userVote !== null || userFP < 10}
-              style={{
-                flex: 1, padding: "14px 0", borderRadius: 14, border: "2px solid",
-                borderColor: market.userVote === "no" ? C.no : "rgba(192,57,43,0.3)",
-                background: market.userVote === "no" ? "rgba(192,57,43,0.1)" : "rgba(192,57,43,0.04)",
-                color: C.no, fontWeight: 800, fontSize: 15, cursor: market.userVote ? "default" : "pointer",
-                transition: "all 0.2s", fontFamily: "'DM Sans', sans-serif"
-              }}>
-              ✗ NO &nbsp;<span style={{ fontWeight: 400, opacity: 0.6 }}>{noPct}%</span>
-            </button>
-          </div>
-          {market.userVote && (
-            <div style={{ marginTop: 8, fontSize: 12, color: C.textSoft, textAlign: "center" }}>
-              You bet {market.userVote.toUpperCase()} · Position locked until resolution
+          {market.status === "anchor" && (
+            <div style={{
+              padding: "14px 16px", borderRadius: 12, background: "rgba(194,220,255,0.25)",
+              border: "1px solid rgba(122,175,238,0.4)", fontSize: 13, color: C.plumMid, textAlign: "center"
+            }}>
+              🕐 Anchor window — the crowd is reading. Trading opens shortly.
+            </div>
+          )}
+          {market.status === "closed" && (
+            <div style={{
+              padding: "14px 16px", borderRadius: 12, background: "rgba(61,0,48,0.05)",
+              border: "1px solid rgba(61,0,48,0.12)", fontSize: 13, color: C.textMid, textAlign: "center"
+            }}>
+              ⏳ Trading closed — awaiting resolution by the creator
+            </div>
+          )}
+          {market.status === "resolved" && (
+            <div style={{
+              padding: "14px 16px", borderRadius: 12, textAlign: "center", fontSize: 14, fontWeight: 700,
+              background: market.voided ? "rgba(61,0,48,0.05)" : market.resolved ? "rgba(26,122,74,0.08)" : "rgba(192,57,43,0.08)",
+              border: `1px solid ${market.voided ? "rgba(61,0,48,0.12)" : market.resolved ? "rgba(26,122,74,0.3)" : "rgba(192,57,43,0.3)"}`,
+              color: market.voided ? C.textMid : market.resolved ? C.yes : C.no
+            }}>
+              {market.voided
+                ? "Market voided — all trades refunded"
+                : `Resolved ${market.resolved ? "YES ✓" : "NO ✗"} — winning shares paid 1 FP each`}
+            </div>
+          )}
+          {(market.status === "trading" || market.status === undefined) && (
+            <>
+              <div style={{ fontSize: 12, color: C.textSoft, marginBottom: 10, letterSpacing: 1, textTransform: "uppercase" }}>
+                Your forecast — 10 shares at the market price
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={() => onTrade(market.id, "yes")}
+                  disabled={market.userVote !== null || userFP < 10}
+                  style={{
+                    flex: 1, padding: "14px 0", borderRadius: 14, border: "2px solid",
+                    borderColor: market.userVote === "yes" ? C.yes : "rgba(26,122,74,0.3)",
+                    background: market.userVote === "yes" ? "rgba(26,122,74,0.1)" : "rgba(26,122,74,0.04)",
+                    color: C.yes, fontWeight: 800, fontSize: 15, cursor: market.userVote ? "default" : "pointer",
+                    transition: "all 0.2s", fontFamily: "'DM Sans', sans-serif"
+                  }}>
+                  ✓ YES &nbsp;<span style={{ fontWeight: 400, opacity: 0.6 }}>{yesPct}%</span>
+                </button>
+                <button onClick={() => onTrade(market.id, "no")}
+                  disabled={market.userVote !== null || userFP < 10}
+                  style={{
+                    flex: 1, padding: "14px 0", borderRadius: 14, border: "2px solid",
+                    borderColor: market.userVote === "no" ? C.no : "rgba(192,57,43,0.3)",
+                    background: market.userVote === "no" ? "rgba(192,57,43,0.1)" : "rgba(192,57,43,0.04)",
+                    color: C.no, fontWeight: 800, fontSize: 15, cursor: market.userVote ? "default" : "pointer",
+                    transition: "all 0.2s", fontFamily: "'DM Sans', sans-serif"
+                  }}>
+                  ✗ NO &nbsp;<span style={{ fontWeight: 400, opacity: 0.6 }}>{noPct}%</span>
+                </button>
+              </div>
+              {market.userVote && (
+                <div style={{ marginTop: 8, fontSize: 12, color: C.textSoft, textAlign: "center" }}>
+                  You bet {market.userVote.toUpperCase()} · Position locked until resolution
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Creator self-resolution */}
+          {onResolve && currentUserId && market.creatorId === currentUserId &&
+            (market.status === "trading" || market.status === "closed") && (
+            <div style={{
+              marginTop: 12, padding: "12px 14px", borderRadius: 12,
+              background: "rgba(194,220,255,0.25)", border: "1px solid rgba(122,175,238,0.4)"
+            }}>
+              <div style={{ fontSize: 12, color: C.plumMid, fontWeight: 700, marginBottom: 8, letterSpacing: 1, textTransform: "uppercase" }}>
+                Your market — how did it turn out?
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => onResolve(market.id, true)} style={{
+                  flex: 1, padding: "10px 0", borderRadius: 10, border: `1px solid rgba(26,122,74,0.4)`,
+                  background: "rgba(26,122,74,0.06)", color: C.yes, fontWeight: 700, fontSize: 13,
+                  cursor: "pointer", fontFamily: "'DM Sans', sans-serif"
+                }}>Resolve YES</button>
+                <button onClick={() => onResolve(market.id, false)} style={{
+                  flex: 1, padding: "10px 0", borderRadius: 10, border: `1px solid rgba(192,57,43,0.4)`,
+                  background: "rgba(192,57,43,0.06)", color: C.no, fontWeight: 700, fontSize: 13,
+                  cursor: "pointer", fontFamily: "'DM Sans', sans-serif"
+                }}>Resolve NO</button>
+              </div>
             </div>
           )}
         </div>
