@@ -11,7 +11,7 @@ const STEPS = [
   { icon: "🏆", title: "Build reputation", text: "Markets resolve, Brier scores update. Calibration — not confidence — climbs the leaderboard." },
 ];
 
-export default function Landing({ onSignUp, onSignIn, onGuest }) {
+export default function Landing({ onSignUp, onSignIn, onGuest, existingUser, onEnter, onSwitch }) {
   const [mode, setMode] = useState("signup"); // signup | login
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -106,6 +106,29 @@ export default function Landing({ onSignUp, onSignIn, onGuest }) {
           background: C.white, borderRadius: 24, padding: 32,
           border: `1px solid ${C.cardBorder}`, boxShadow: "0 20px 60px rgba(61,0,48,0.15)",
         }}>
+          {existingUser ? (
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>👋</div>
+              <div style={{ fontFamily: "'DM Serif Display', serif", fontSize: 22, color: C.plum, marginBottom: 4 }}>
+                Welcome back
+              </div>
+              <div style={{ fontSize: 14, color: C.textMid, marginBottom: 24 }}>
+                Signed in as <span style={{ fontWeight: 700, color: C.plum }}>{existingUser}</span>
+              </div>
+              <button onClick={onEnter} style={{
+                width: "100%", padding: "14px 0", background: C.plum, border: "none",
+                borderRadius: 12, color: C.white, fontWeight: 800, fontSize: 15,
+                cursor: "pointer", fontFamily: "'DM Sans', sans-serif",
+                boxShadow: "0 4px 20px rgba(61,0,48,0.3)", marginBottom: 14,
+              }}>Enter Castlot →</button>
+              <button onClick={onSwitch} style={{
+                background: "none", border: "none", color: C.textSoft, fontWeight: 600,
+                cursor: "pointer", fontSize: 13, fontFamily: "'DM Sans', sans-serif",
+                textDecoration: "underline", padding: 0,
+              }}>Not you? Sign out</button>
+            </div>
+          ) : (
+          <>
           <div style={{ display: "flex", gap: 6, marginBottom: 24, background: "rgba(61,0,48,0.05)", borderRadius: 12, padding: 4 }}>
             {[["signup", "Create account"], ["login", "Log in"]].map(([m, label]) => (
               <button key={m} onClick={() => { setMode(m); setError(""); }} style={{
@@ -157,6 +180,8 @@ export default function Landing({ onSignUp, onSignIn, onGuest }) {
             New accounts get 1,000 Foresight Points. Markets are anonymous —
             your username only ever shows on the leaderboard.
           </div>
+          </>
+          )}
         </div>
       </div>
     </div>

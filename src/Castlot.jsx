@@ -26,6 +26,8 @@ export default function Castlot() {
   const [live, setLive] = useState(false);
   const [session, setSession] = useState(null);
   const [authChecked, setAuthChecked] = useState(!supabase);
+  // The landing page always shows first; this flips on an explicit action
+  const [entered, setEntered] = useState(!supabase);
   const [profile, setProfile] = useState(null);
   const [leaders, setLeaders] = useState(null); // null → fall back to mock
 
@@ -57,9 +59,11 @@ export default function Castlot() {
 
   const handleSignUp = async (email, password, username) => {
     await loadData(await signUp(email, password, username));
+    setEntered(true);
   };
   const handleSignIn = async (email, password) => {
     await loadData(await signIn(email, password));
+    setEntered(true);
   };
   const handleGuest = async () => {
     try {
@@ -68,6 +72,11 @@ export default function Castlot() {
       console.error("Guest sign-in failed:", e);
       setSession({ guest: true }); // local demo mode
     }
+    setEntered(true);
+  };
+  const handleSwitchAccount = async () => {
+    if (supabase) await signOut();
+    window.location.reload();
   };
   const handleSignOut = async () => {
     if (supabase) await signOut();
@@ -168,8 +177,15 @@ export default function Castlot() {
   if (!authChecked) {
     return <div style={{ minHeight: "100vh", background: C.bg }} />;
   }
-  if (supabase && !session) {
-    return <Landing onSignUp={handleSignUp} onSignIn={handleSignIn} onGuest={handleGuest} />;
+  if (!entered) {
+    return <Landing
+      onSignUp={handleSignUp}
+      onSignIn={handleSignIn}
+      onGuest={handleGuest}
+      existingUser={session ? (profile?.username ?? "forecaster") : null}
+      onEnter={() => setEntered(true)}
+      onSwitch={handleSwitchAccount}
+    />;
   }
 
   return (
