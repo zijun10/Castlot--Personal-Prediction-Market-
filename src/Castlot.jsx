@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { C } from "./theme.js";
+import { supabase, ensureSession, fetchMarkets, fetchBalance, fetchUserVotes, executeTrade, createMarket } from "./api.js";
 import { INITIAL_MARKETS, CATEGORIES } from "./mockData.js";
 import { brierLabel } from "./brier.js";
 import MarketCard from "./components/MarketCard.jsx";
@@ -16,6 +17,25 @@ export default function Castlot() {
   const [userFP, setUserFP] = useState(1000);
   const [notification, setNotification] = useState(null);
   const [aiInsightMarket, setAiInsightMarket] = useState(null);
+  // true once server data is loaded — trades then settle through Postgres
+  const [live, setLive] = useState(false);
+
+  useEffect(() => {
+    if (!supabase) return;
+    (async () => {
+      try {
+        await ensureSession();
+        const [serverMarkets, balance, votes] = await Promise.all([
+          fetchMarkets(), fetchBalance(), fetchUserVotes(),
+        ]);
+        setMarkets(serverMarkets.map(m => ({ ...m, userVote: votes[m.id] ?? null })));
+        setUserFP(Math.round(balance));
+        setLive(true);
+      } catch (e) {
+        console.error("Supabase init failed — running in local demo mode:", e);
+      }
+    })();
+  }, []);
 
   const currentUser = { id: "me", name: "you_anon", brier: "0.142", markets: 3 };
 
@@ -33,7 +53,23 @@ export default function Castlot() {
     setTimeout(() => setNotification(null), 2800);
   };
 
-  const handleTrade = (marketId, side) => {
+  const handleTrade = async (marketId, side) => {
+    if (live) {
+      // Server is authoritative: it computes LMSR cost, checks the ledger
+      // balance, and settles the trade atomically. We just render the result.
+      try {
+        const r = await executeTrade(marketId, side, 10);
+        setMarkets(prev => prev.map(m => m.id === marketId
+          ? { ...m, qYes: r.q_yes, qNo: r.q_no, traders: r.traders, userVote: side }
+          : m));
+        setUserFP(Math.round(r.balance));
+        notify(`Position taken: ${side.toUpperCase()} · ${r.cost.toFixed(1)} FP`, side === "yes" ? C.yes : C.no);
+      } catch (e) {
+        notify(e.message || "Trade failed", "#EF4444");
+      }
+      return;
+    }
+    // Local demo fallback (no Supabase configured)
     if (userFP < 50) { notify("Not enough Foresight Points!", "#EF4444"); return; }
     setMarkets(prev => prev.map(m => {
       if (m.id !== marketId) return m;
@@ -52,7 +88,17 @@ export default function Castlot() {
     }));
   };
 
-  const handleCreateMarket = (marketData) => {
+  const handleCreateMarket = async (marketData) => {
+    if (live) {
+      try {
+        const created = await createMarket(marketData);
+        setMarkets(prev => [created, ...prev]);
+        notify("Market published! 🚀 Crowd is watching.", C.yes);
+      } catch (e) {
+        notify(e.message || "Failed to publish market", "#EF4444");
+      }
+      return;
+    }
     const newMarket = {
       id: Date.now(), ...marketData,
       creator: "anon_you", creatorId: "me",

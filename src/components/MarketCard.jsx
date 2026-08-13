@@ -129,11 +129,11 @@ export default function MarketCard({ market, onTrade, onComment, userFP, current
         {/* YES/NO Trade Buttons */}
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 12, color: C.textSoft, marginBottom: 10, letterSpacing: 1, textTransform: "uppercase" }}>
-            Your forecast — costs 50 FP
+            Your forecast — 10 shares at the market price
           </div>
           <div style={{ display: "flex", gap: 10 }}>
             <button onClick={() => onTrade(market.id, "yes")}
-              disabled={market.userVote !== null || userFP < 50}
+              disabled={market.userVote !== null || userFP < 10}
               style={{
                 flex: 1, padding: "14px 0", borderRadius: 14, border: "2px solid",
                 borderColor: market.userVote === "yes" ? C.yes : "rgba(26,122,74,0.3)",
@@ -144,7 +144,7 @@ export default function MarketCard({ market, onTrade, onComment, userFP, current
               ✓ YES &nbsp;<span style={{ fontWeight: 400, opacity: 0.6 }}>{yesPct}%</span>
             </button>
             <button onClick={() => onTrade(market.id, "no")}
-              disabled={market.userVote !== null || userFP < 50}
+              disabled={market.userVote !== null || userFP < 10}
               style={{
                 flex: 1, padding: "14px 0", borderRadius: 14, border: "2px solid",
                 borderColor: market.userVote === "no" ? C.no : "rgba(192,57,43,0.3)",
